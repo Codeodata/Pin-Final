@@ -1,5 +1,8 @@
-bucket = "terraform-state"
-key    = "terraform.tfstate"
-region = "us-east-1"
-encrypt = true
-acl     = "bucket-owner-full-control"
+terraform {
+  backend "s3" {
+    bucket = var.bucket_name
+    key    = "terraform.tfstate"
+    region = var.region
+    encrypt = true
+  }
+}

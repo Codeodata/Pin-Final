@@ -24,12 +24,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1  
 
-      - name: Create S3 bucket if not exists
-        run: |
-          if ! aws s3api head-bucket --bucket terraform-state 2>/dev/null; then
-          aws s3api create-bucket --bucket terraform-state --region us-east-1 --create-bucket-configuration LocationConstraint=us-east-1
-          fi        
-
       - name: Initialize Terraform
         run: terraform init
 
