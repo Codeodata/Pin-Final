@@ -5,10 +5,10 @@ provider "aws" {
 # Configuración del Backend para almacenar el estado en S3
 terraform {
   backend "s3" {
-    bucket = var.bucket_name   # Usando la variable para el bucket
+    bucket = "terraform-state"  # Nombre fijo del bucket
     key    = "terraform.tfstate"
-    region = var.region
+    region = "us-east-1"
     encrypt = true
-    acl     = "terraform-state"
+    acl     = "bucket-owner-full-control"
   }
 }
