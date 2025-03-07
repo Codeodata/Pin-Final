@@ -1,11 +1,3 @@
-# variables.tf
-
-variable "bucket_name" {
-  description = "Nombre del bucket S3 para almacenar el estado de Terraform"
-  type        = string
-  default     = "terraform-state"
-}
-
 variable "region" {
   description = "Región de AWS donde se encuentra el bucket S3"
   type        = string
