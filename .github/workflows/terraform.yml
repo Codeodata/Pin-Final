@@ -25,19 +25,53 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # Paso 4: Crear el bucket S3 (si no existe)
+      # Paso 4: Crear el bucket S3 (si no existe) y configurar permisos de borrado
       - name: Create S3 Bucket for Terraform State
         run: |
-          if ! aws s3api head-bucket --bucket pin-grupo-4 2>/dev/null; then
+          BUCKET_NAME="pin-grupo-4"
+
+          # Verificar si el bucket ya existe
+          if ! aws s3api head-bucket --bucket $BUCKET_NAME 2>/dev/null; then
+            # Crear el bucket
             aws s3api create-bucket \
-              --bucket pin-grupo-4 \
+              --bucket $BUCKET_NAME \
               --region us-east-1
+
+            # Habilitar el versionado
             aws s3api put-bucket-versioning \
-              --bucket pin-grupo-4 \
+              --bucket $BUCKET_NAME \
               --versioning-configuration Status=Enabled
+
+            # Habilitar el cifrado en el bucket
             aws s3api put-bucket-encryption \
-              --bucket pin-grupo-4 \
+              --bucket $BUCKET_NAME \
               --server-side-encryption-configuration '{"Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}]}'
+
+            # Configurar una política de bucket que permita la eliminación
+            POLICY='{
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Principal": "*",
+                  "Action": [
+                    "s3:DeleteObject",
+                    "s3:DeleteObjectVersion",
+                    "s3:DeleteBucket"
+                  ],
+                  "Resource": [
+                    "arn:aws:s3:::'$BUCKET_NAME'",
+                    "arn:aws:s3:::'$BUCKET_NAME'/*"
+                  ]
+                }
+              ]
+            }'
+            echo "Configurando política de bucket para permitir la eliminación..."
+            aws s3api put-bucket-policy \
+              --bucket $BUCKET_NAME \
+              --policy "$POLICY"
+          else
+            echo "El bucket ya existe. No es necesario crearlo."
           fi
 
       # Paso 5: Inicializar Terraform (esto configurará el backend S3)
