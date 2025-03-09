@@ -1,22 +1,23 @@
-name: Terraform Init and Apply
+name: Terraform Deploy Workflow
 on:
   workflow_dispatch:  # Permite ejecución manual desde GitHub Actions
+
 jobs:
-  create-s3-bucket:
-    name: Create S3 Bucket for Terraform State
+  deploy:
+    name: Deploy Infrastructure with Terraform
     runs-on: ubuntu-latest
-    env:
-      TF_VAR_bucket_name: terraform-state  # Define el nombre del bucket aquí
-      TF_VAR_region: us-east-1
     steps:
+      # Paso 1: Checkout del código fuente
       - name: Checkout code
         uses: actions/checkout@v3
 
+      # Paso 2: Configurar Terraform CLI
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
-          terraform_version: 1.6.6
+          terraform_version: 1.8.4
 
+      # Paso 3: Configurar las credenciales de AWS
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v3
         with:
@@ -24,27 +25,31 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      - name: Initialize Terraform (Local Backend)
+      # Paso 4: Crear el bucket S3 (si no existe)
+      - name: Create S3 Bucket for Terraform State
+        run: |
+          if ! aws s3api head-bucket --bucket pin-grupo-4 2>/dev/null; then
+            aws s3api create-bucket \
+              --bucket pin-grupo-4 \
+              --region us-east-1
+            aws s3api put-bucket-versioning \
+              --bucket pin-grupo-4 \
+              --versioning-configuration Status=Enabled
+            aws s3api put-bucket-encryption \
+              --bucket pin-grupo-4 \
+              --server-side-encryption-configuration '{"Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}]}'
+          fi
+
+      # Paso 5: Inicializar Terraform (esto configurará el backend S3)
+      - name: Initialize Terraform
         run: terraform init
 
-      - name: Terraform Plan (Create S3 Bucket)
-        run: terraform plan
+      # Paso 6: Ejecutar Terraform Plan y guardar el plan en un archivo
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -out=tfplan
 
-      - name: Terraform Apply (Create S3 Bucket)
+      # Paso 7: Ejecutar Terraform Apply solo cuando el plan sea exitoso y en la rama main
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main'
         run: terraform apply -auto-approve
-
-  configure-backend-and-apply:
-    name: Configure Backend and Apply Terraform
-    needs: create-s3-bucket
-    runs-on: ubuntu-latest
-    env:
-      TF_VAR_bucket_name: mi-bucket-terraform  # Define el nombre del bucket aquí
-      TF_VAR_region: us-east-1
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.6.6
