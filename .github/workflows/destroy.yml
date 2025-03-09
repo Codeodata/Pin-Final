@@ -35,7 +35,7 @@ jobs:
           BUCKET_NAME="pin-grupo-4"
 
           # Verificar si el bucket existe
-          if aws s3api head-bucket --bucket $BUCKET_NAME 2>/dev/null; then
+          if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
             echo "✅ Bucket encontrado, eliminando contenido..."
 
             # 1️⃣ 🔥 ELIMINAR `terraform.tfstate`
@@ -43,7 +43,7 @@ jobs:
             aws s3 rm "s3://$BUCKET_NAME/terraform.tfstate" || true
 
             # 2️⃣ 🔥 ELIMINAR TODAS LAS VERSIONES de `terraform.tfstate`
-            versions=$(aws s3api list-object-versions --bucket $BUCKET_NAME --query "Versions[?Key=='terraform.tfstate']" --output json)
+            versions=$(aws s3api list-object-versions --bucket "$BUCKET_NAME" --query "Versions[?Key=='terraform.tfstate']" --output json)
             if [[ "$versions" != "null" && "$versions" != "[]" ]]; then
               echo "$versions" | jq -r '.[] | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
                 echo "🗑️ Eliminando versión de terraform.tfstate: $version_id"
@@ -52,7 +52,7 @@ jobs:
             fi
 
             # 3️⃣ 🔥 ELIMINAR MARCADORES DE ELIMINACIÓN de `terraform.tfstate`
-            markers=$(aws s3api list-object-versions --bucket $BUCKET_NAME --query "DeleteMarkers[?Key=='terraform.tfstate']" --output json)
+            markers=$(aws s3api list-object-versions --bucket "$BUCKET_NAME" --query "DeleteMarkers[?Key=='terraform.tfstate']" --output json)
             if [[ "$markers" != "null" && "$markers" != "[]" ]]; then
               echo "$markers" | jq -r '.[] | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
                 echo "🗑️ Eliminando marcador de terraform.tfstate: $version_id"
@@ -65,7 +65,7 @@ jobs:
             aws s3 rm "s3://$BUCKET_NAME" --recursive || true
 
             # 5️⃣ 🔥 ELIMINAR TODAS LAS VERSIONES de los objetos restantes
-            versions=$(aws s3api list-object-versions --bucket $BUCKET_NAME --query "Versions" --output json)
+            versions=$(aws s3api list-object-versions --bucket "$BUCKET_NAME" --query "Versions" --output json)
             if [[ "$versions" != "null" && "$versions" != "[]" ]]; then
               echo "$versions" | jq -r '.[] | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
                 echo "🗑️ Eliminando objeto: $key, versión: $version_id"
@@ -74,7 +74,7 @@ jobs:
             fi
 
             # 6️⃣ 🔥 ELIMINAR MARCADORES DE ELIMINACIÓN RESTANTES
-            markers=$(aws s3api list-object-versions --bucket $BUCKET_NAME --query "DeleteMarkers" --output json)
+            markers=$(aws s3api list-object-versions --bucket "$BUCKET_NAME" --query "DeleteMarkers" --output json)
             if [[ "$markers" != "null" && "$markers" != "[]" ]]; then
               echo "$markers" | jq -r '.[] | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
                 echo "🗑️ Eliminando marcador de eliminación: $key, versión: $version_id"
@@ -82,10 +82,14 @@ jobs:
               done
             fi
 
-            # 7️⃣ 🔍 VERIFICAR SI EL BUCKET ESTÁ REALMENTE VACÍO
-            remaining_objects=$(aws s3api list-objects --bucket $BUCKET_NAME --query "Contents" --output json)
-            remaining_versions=$(aws s3api list-object-versions --bucket $BUCKET_NAME --query "Versions" --output json)
-            remaining_markers=$(aws s3api list-object-versions --bucket $BUCKET_NAME --query "DeleteMarkers" --output json)
+            # 7️⃣ 🔍 ESPERAR 10 SEGUNDOS PARA QUE AWS PROCESE
+            echo "⏳ Esperando 10 segundos antes de verificar si el bucket está vacío..."
+            sleep 10
+
+            # 8️⃣ 🔍 VERIFICAR SI EL BUCKET ESTÁ REALMENTE VACÍO
+            remaining_objects=$(aws s3api list-objects --bucket "$BUCKET_NAME" --query "Contents" --output json)
+            remaining_versions=$(aws s3api list-object-versions --bucket "$BUCKET_NAME" --query "Versions" --output json)
+            remaining_markers=$(aws s3api list-object-versions --bucket "$BUCKET_NAME" --query "DeleteMarkers" --output json)
 
             if [[ "$remaining_objects" == "[]" && "$remaining_versions" == "[]" && "$remaining_markers" == "[]" ]]; then
               echo "✅ El bucket está completamente vacío."
@@ -105,7 +109,7 @@ jobs:
       - name: Wait for S3 to process deletions
         run: |
           echo "⏳ Esperando 10 segundos para permitir que S3 procese las eliminaciones..."
-          sleep 60
+          sleep 10
 
       # Paso 8: Intentar eliminar el bucket solo si está vacío
       - name: Delete S3 Bucket
@@ -113,9 +117,9 @@ jobs:
           BUCKET_NAME="pin-grupo-4"
 
           # Verificar si el bucket sigue existiendo antes de eliminarlo
-          if aws s3api head-bucket --bucket $BUCKET_NAME 2>/dev/null; then
+          if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
             echo "🗑️ Intentando eliminar el bucket vacío..."
-            aws s3api delete-bucket --bucket $BUCKET_NAME
+            aws s3api delete-bucket --bucket "$BUCKET_NAME" --region us-east-1
             echo "✅ Bucket eliminado con éxito."
           else
             echo "El bucket no existe o ya fue eliminado."
