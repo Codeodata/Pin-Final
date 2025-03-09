@@ -1,27 +1,23 @@
 name: Terraform Destroy Workflow
 on:
-  workflow_dispatch:  # Permite ejecución manual
+  workflow_dispatch:  # Permite ejecución manual desde GitHub Actions
 
 jobs:
   destroy:
     name: Destroy Infrastructure with Terraform
     runs-on: ubuntu-latest
     steps:
-      # 1. Checkout del código fuente
+      # Paso 1: Checkout del código fuente
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 2. Instalar jq para procesamiento JSON
-      - name: Install jq
-        run: sudo apt-get install jq -y
-
-      # 3. Configurar Terraform CLI
+      # Paso 2: Configurar Terraform CLI
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.8.4
 
-      # 4. Configurar credenciales AWS
+      # Paso 3: Configurar las credenciales de AWS
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v3
         with:
@@ -29,59 +25,51 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # 5. Inicializar Terraform
+      # Paso 4: Inicializar Terraform (esto configurará el backend S3)
       - name: Initialize Terraform
         run: terraform init
 
-      # 6. Ejecutar Terraform Destroy
+      # Paso 5: Ejecutar Terraform Destroy
       - name: Terraform Destroy
-        run: terraform destroy -auto-approve -force
+        run: terraform destroy -auto-approve
 
-      # 7. Eliminar Bucket S3 con manejo de versiones
-      - name: Delete S3 Bucket
-        env:
-          BUCKET_NAME: "pin-grupo-4"
+      # Paso 6: Eliminar el bucket S3 y su contenido
+      - name: Delete S3 Bucket and Content
         run: |
+          BUCKET_NAME="pin-grupo-4"
+
+          # Verificar si el bucket existe
           if aws s3api head-bucket --bucket $BUCKET_NAME 2>/dev/null; then
-            echo "Eliminando objetos versionados..."
-            
-            # Eliminar versiones de objetos
-            aws s3api list-object-versions --bucket $BUCKET_NAME --query "Versions[].[Key,VersionId]" --output json | \
-            jq -r '.[] | @base64' | while read -r item; do
-              _jq() {
-                echo "$item" | base64 --decode | jq -r "$1"
-              }
-              KEY=$(_jq '.[0]')
-              VERSION_ID=$(_jq '.[1]')
-              if [ -n "$KEY" ] && [ -n "$VERSION_ID" ]; then
-                echo "Eliminando objeto: $KEY (Version: $VERSION_ID)"
-                aws s3api delete-object --bucket $BUCKET_NAME --key "$KEY" --version-id "$VERSION_ID"
-              fi
-            done
+            echo "El bucket existe. Procediendo a eliminar su contenido..."
 
-            # Eliminar marcadores de eliminación
+            # 1. Eliminar todos los objetos normales del bucket
+            echo "Eliminando objetos normales..."
+            aws s3 rm "s3://$BUCKET_NAME" --recursive || true
+
+            # 2. Eliminar versiones de objetos (si el bucket tiene versionado)
+            echo "Eliminando versiones de objetos..."
+            versions=$(aws s3api list-object-versions --bucket $BUCKET_NAME --query "Versions" --output json)
+            if [[ "$versions" != "[]" && "$versions" != "null" ]]; then
+              echo "$versions" | jq -r '.[] | select(.VersionId != null) | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
+                echo "Eliminando objeto: $key, versión: $version_id"
+                aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
+              done
+            fi
+
+            # 3. Eliminar marcadores de eliminación
             echo "Eliminando marcadores de eliminación..."
-            aws s3api list-object-versions --bucket $BUCKET_NAME --query "DeleteMarkers[].[Key,VersionId]" --output json | \
-            jq -r '.[] | @base64' | while read -r item; do
-              _jq() {
-                echo "$item" | base64 --decode | jq -r "$1"
-              }
-              KEY=$(_jq '.[0]')
-              VERSION_ID=$(_jq '.[1]')
-              if [ -n "$KEY" ] && [ -n "$VERSION_ID" ]; then
-                echo "Eliminando marcador: $KEY (Version: $VERSION_ID)"
-                aws s3api delete-object --bucket $BUCKET_NAME --key "$KEY" --version-id "$VERSION_ID"
-              fi
-            done
+            markers=$(aws s3api list-object-versions --bucket $BUCKET_NAME --query "DeleteMarkers" --output json)
+            if [[ "$markers" != "[]" && "$markers" != "null" ]]; then
+              echo "$markers" | jq -r '.[] | select(.VersionId != null) | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
+                echo "Eliminando marcador: $key, versión: $version_id"
+                aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
+              done
+            fi
 
-            # Eliminar objetos no versionados
-            echo "Vaciando bucket..."
-            aws s3 rm s3://$BUCKET_NAME --recursive --quiet || true
-
-            # Eliminar bucket
-            echo "Eliminando bucket..."
+            # 4. Una vez vaciado el bucket, eliminarlo
+            echo "Eliminando el bucket..."
             aws s3api delete-bucket --bucket $BUCKET_NAME
-            echo "✅ Bucket eliminado con éxito"
+            echo "Bucket eliminado con éxito."
           else
-            echo "⚠️ El bucket no existe"
+            echo "El bucket no existe o ya fue eliminado."
           fi
