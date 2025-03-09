@@ -50,12 +50,19 @@ jobs:
               --output=json > objects.json
             aws s3api delete-objects --bucket $BUCKET_NAME --delete file://objects.json
 
-            # Eliminar marcadores de eliminación
+            # Eliminar marcadores de eliminación (solo si existen)
             echo "Eliminando marcadores de eliminación..."
             aws s3api list-object-versions --bucket $BUCKET_NAME \
               --query='{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' \
               --output=json > delete_markers.json
-            aws s3api delete-objects --bucket $BUCKET_NAME --delete file://delete_markers.json
+
+            # Verificar si el archivo delete_markers.json contiene datos
+            if [ -s delete_markers.json ]; then
+              echo "Marcadores de eliminación encontrados. Procediendo a eliminarlos..."
+              aws s3api delete-objects --bucket $BUCKET_NAME --delete file://delete_markers.json
+            else
+              echo "No se encontraron marcadores de eliminación. Saltando este paso."
+            fi
 
             # Eliminar el bucket vacío
             echo "Eliminando el bucket vacío..."
