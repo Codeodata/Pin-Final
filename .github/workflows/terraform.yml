@@ -1,13 +1,13 @@
-name: Terraform Apply Workflow
-
+name: Terraform Init and Apply
 on:
   workflow_dispatch:  # Permite ejecución manual desde GitHub Actions
-
 jobs:
-  terraform:
-    name: Terraform Workflow on AWS
+  create-s3-bucket:
+    name: Create S3 Bucket for Terraform State
     runs-on: ubuntu-latest
-
+    env:
+      TF_VAR_bucket_name: terraform-state  # Define el nombre del bucket aquí
+      TF_VAR_region: us-east-1
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -15,22 +15,36 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
-          terraform_version: 1.8.4
+          terraform_version: 1.6.6
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v3
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1  
+          aws-region: us-east-1
 
-      - name: Initialize Terraform
+      - name: Initialize Terraform (Local Backend)
         run: terraform init
 
-      - name: Terraform Plan
-        id: plan
-        run: terraform plan -out=tfplan
+      - name: Terraform Plan (Create S3 Bucket)
+        run: terraform plan
 
-      - name: Terraform Apply
-        if: github.ref == 'refs/heads/main'
+      - name: Terraform Apply (Create S3 Bucket)
         run: terraform apply -auto-approve
+
+  configure-backend-and-apply:
+    name: Configure Backend and Apply Terraform
+    needs: create-s3-bucket
+    runs-on: ubuntu-latest
+    env:
+      TF_VAR_bucket_name: mi-bucket-terraform  # Define el nombre del bucket aquí
+      TF_VAR_region: us-east-1
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.6.6
