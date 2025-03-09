@@ -29,24 +29,24 @@ jobs:
       - name: Initialize Terraform
         run: terraform init
 
-      # Paso 5: Eliminar contenido del bucket S3 antes de destruir la infraestructura
+      # Paso 5: Vaciar el bucket S3 ANTES de ejecutar terraform destroy
       - name: Empty S3 Bucket (including terraform.tfstate)
         run: |
           BUCKET_NAME="pin-grupo-4"
 
-          # Verificar si el bucket existe
+          # Verificar si el bucket existe antes de intentar vaciarlo
           if aws s3api head-bucket --bucket $BUCKET_NAME 2>/dev/null; then
             echo "El bucket existe. Procediendo a eliminar su contenido..."
 
-            # 1. Eliminar `terraform.tfstate` y otros objetos normales
+            # 1. Eliminar todos los objetos normales
             echo "Eliminando objetos normales..."
             aws s3 rm "s3://$BUCKET_NAME" --recursive || true
 
-            # 2. Eliminar versiones de objetos (incluyendo `terraform.tfstate` si tiene versiones)
+            # 2. Eliminar versiones de objetos (si el bucket tiene versionado)
             echo "Obteniendo lista de versiones de objetos..."
             aws s3api list-object-versions --bucket $BUCKET_NAME --query "Versions" --output json | \
             jq -r '.[] | select(.VersionId != null) | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
-              echo "Eliminando objeto: $key, versión: $version_id"
+              echo "Eliminando objeto versionado: $key, versión: $version_id"
               aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
             done
 
@@ -58,21 +58,31 @@ jobs:
               aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
             done
 
-            echo "Contenido del bucket eliminado con éxito."
+            echo "Verificando que el bucket está vacío..."
+            remaining_objects=$(aws s3api list-objects --bucket $BUCKET_NAME --query "Contents" --output json)
+            remaining_versions=$(aws s3api list-object-versions --bucket $BUCKET_NAME --query "Versions" --output json)
+            remaining_markers=$(aws s3api list-object-versions --bucket $BUCKET_NAME --query "DeleteMarkers" --output json)
+
+            if [[ "$remaining_objects" == "[]" && "$remaining_versions" == "[]" && "$remaining_markers" == "[]" ]]; then
+              echo "El bucket está completamente vacío."
+            else
+              echo "ERROR: El bucket aún tiene objetos después de la eliminación. Abortando eliminación del bucket."
+              exit 1
+            fi
           else
             echo "El bucket no existe o ya está vacío."
           fi
 
-      # Paso 6: Ejecutar Terraform Destroy (ahora el bucket ya está vacío)
+      # Paso 6: Ejecutar Terraform Destroy (solo si el bucket ya está vacío)
       - name: Terraform Destroy
         run: terraform destroy -auto-approve
 
-      # Paso 7: Eliminar el bucket S3 después de la destrucción de Terraform
+      # Paso 7: Intentar eliminar el bucket solo si está vacío
       - name: Delete S3 Bucket
         run: |
           BUCKET_NAME="pin-grupo-4"
 
-          # Verificar si el bucket sigue existiendo
+          # Verificar si el bucket sigue existiendo antes de eliminarlo
           if aws s3api head-bucket --bucket $BUCKET_NAME 2>/dev/null; then
             echo "Intentando eliminar el bucket vacío..."
             aws s3api delete-bucket --bucket $BUCKET_NAME
