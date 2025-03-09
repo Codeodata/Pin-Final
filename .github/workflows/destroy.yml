@@ -101,7 +101,13 @@ jobs:
       - name: Terraform Destroy
         run: terraform destroy -auto-approve
 
-      # Paso 7: Intentar eliminar el bucket solo si está vacío
+      # Paso 7: Esperar antes de eliminar el bucket
+      - name: Wait for S3 to process deletions
+        run: |
+          echo "⏳ Esperando 10 segundos para permitir que S3 procese las eliminaciones..."
+          sleep 10
+
+      # Paso 8: Intentar eliminar el bucket solo si está vacío
       - name: Delete S3 Bucket
         run: |
           BUCKET_NAME="pin-grupo-4"
