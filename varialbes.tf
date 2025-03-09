@@ -1,5 +1,5 @@
 variable "bucket_name" {
-  description = "Nombre del bucket S3 para almacenar el estado de Terraform"
+  description = "Región de AWS donde se encuentra el bucket S3"
   type        = string
   default     = "terraform-state"
 }
@@ -50,4 +50,10 @@ variable "instance_name" {
   description = "Nombre de la instancia EC2"
   type        = string
   default     = "monitoring"
+}
+
+variable "key_name" {
+  description = "Nombre de la instancia EC2"
+  type        = string
+  default     = "Miclaveprivada"
 }

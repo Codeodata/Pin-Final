@@ -1,3 +1,4 @@
+# Configuración del Backend para almacenar el estado en S3
 terraform {
   backend "s3" {
     bucket  = var.bucket_name   # Nombre del bucket S3
@@ -7,16 +8,22 @@ terraform {
     acl     = "bucket-owner-full-control"        # Permite control total al propietario del bucket
   }
 }
+# Crear la instancia EC2
 resource "aws_instance" "monitoring" {
-  ami                         = var.ami_id  # ID de la AMI
-  instance_type               = var.instance_type               # Tipo de instancia EC2
-  key_name                    = "Miclaveprivada"
+  ami                         = var.ami_id
+  instance_type               = var.instance_type
+  key_name                    = var.key_name
   associate_public_ip_address = true
-  vpc_security_group_ids      = [aws_security_group.sg.id]
   subnet_id                   = aws_subnet.subnet.id
-  user_data                   = file("metrics.sh")  # Ejecutar el script al lanzar la instancia
+  vpc_security_group_ids      = [aws_security_group.sg.id]
+  user_data                   = file("metrics.sh")  # Script de inicialización
 
   tags = {
     Name = var.instance_name
   }
+}
+
+# Salida de la dirección IP pública
+output "instance_public_ip" {
+  value = aws_instance.monitoring.public_ip
 }
