@@ -36,28 +36,35 @@ jobs:
       # Paso 6: Eliminar el bucket S3 y sus objetos
       - name: Delete S3 Bucket
         run: |
+          # Nombre del bucket
           BUCKET_NAME="pin-grupo-4"
 
           # Verificar si el bucket existe
           if aws s3api head-bucket --bucket $BUCKET_NAME 2>/dev/null; then
             echo "El bucket existe. Procediendo a eliminarlo..."
 
-            # Eliminar todos los objetos en el bucket (para buckets sin versionado)
+            # Eliminar todos los objetos normales del bucket
             echo "Eliminando todos los objetos..."
             aws s3 rm "s3://$BUCKET_NAME" --recursive
 
             # Eliminar todas las versiones de los objetos (si el bucket tiene versionado)
             echo "Eliminando versiones de objetos..."
             aws s3api list-object-versions --bucket $BUCKET_NAME \
-              --query "Versions[].[Key,VersionId]" --output text | while read -r key version_id; do
-                aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
+              --query "Versions[].[Key,VersionId]" --output text | grep -v "None" | while read -r key version_id; do
+                if [[ -n "$key" && -n "$version_id" ]]; then
+                  echo "Eliminando objeto: $key, versión: $version_id"
+                  aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
+                fi
             done
 
             # Eliminar marcadores de eliminación
             echo "Eliminando marcadores de eliminación..."
             aws s3api list-object-versions --bucket $BUCKET_NAME \
-              --query "DeleteMarkers[].[Key,VersionId]" --output text | while read -r key version_id; do
-                aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
+              --query "DeleteMarkers[].[Key,VersionId]" --output text | grep -v "None" | while read -r key version_id; do
+                if [[ -n "$key" && -n "$version_id" ]]; then
+                  echo "Eliminando marcador de eliminación: $key, versión: $version_id"
+                  aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
+                fi
             done
 
             # Intentar eliminar el bucket después de vaciarlo
