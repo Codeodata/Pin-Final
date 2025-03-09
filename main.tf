@@ -11,17 +11,6 @@ resource "aws_instance" "monitoring" {
   }
 }
 
-# Crear el bucket S3
-resource "aws_s3_bucket" "terraform_state" {
-  bucket = var.bucket_name
-  force_destroy = true
-
-  tags = {
-    Name        = "Terraform State Bucket"
-    Environment = "Dev"
-  }
-}
-
 # Habilitar versionado en el bucket
 resource "aws_s3_bucket_versioning" "versioning" {
   bucket = aws_s3_bucket.terraform_state.id
