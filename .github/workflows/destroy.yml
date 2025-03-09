@@ -25,61 +25,73 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # Paso 4: Inicializar Terraform (esto configurará el backend S3)
+      # Paso 4: Inicializar Terraform
       - name: Initialize Terraform
         run: terraform init
 
-      # Paso 5: Vaciar el bucket S3, asegurando la eliminación de terraform.tfstate
+      # Paso 5: Vaciar el bucket S3 asegurando la eliminación de terraform.tfstate
       - name: Empty S3 Bucket (including terraform.tfstate)
         run: |
           BUCKET_NAME="pin-grupo-4"
 
-          # Verificar si el bucket existe antes de intentar vaciarlo
+          # Verificar si el bucket existe
           if aws s3api head-bucket --bucket $BUCKET_NAME 2>/dev/null; then
-            echo "El bucket existe. Procediendo a eliminar su contenido..."
+            echo "✅ Bucket encontrado, eliminando contenido..."
 
             # 1. 🔥 ELIMINAR `terraform.tfstate` PRIMERO
-            echo "Intentando eliminar terraform.tfstate..."
+            echo "🗑️ Eliminando terraform.tfstate..."
             aws s3 rm "s3://$BUCKET_NAME/terraform.tfstate" || true
 
-            # 2. 🔥 ELIMINAR TODAS LAS VERSIONES de `terraform.tfstate` si el bucket tiene versionado
-            echo "Buscando versiones de terraform.tfstate..."
-            aws s3api list-object-versions --bucket $BUCKET_NAME --query "Versions[?Key=='terraform.tfstate']" --output json | \
-            jq -r '.[] | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
-              echo "Eliminando versión de terraform.tfstate: $version_id"
-              aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
-            done
+            # 2. 🔥 ELIMINAR TODAS LAS VERSIONES de `terraform.tfstate` si hay versiones
+            echo "🔍 Buscando versiones de terraform.tfstate..."
+            versions=$(aws s3api list-object-versions --bucket $BUCKET_NAME --query "Versions[?Key=='terraform.tfstate']" --output json)
 
-            # 3. 🔥 ELIMINAR MARCADORES DE ELIMINACIÓN para `terraform.tfstate`
-            echo "Buscando marcadores de eliminación para terraform.tfstate..."
-            aws s3api list-object-versions --bucket $BUCKET_NAME --query "DeleteMarkers[?Key=='terraform.tfstate']" --output json | \
-            jq -r '.[] | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
-              echo "Eliminando marcador de terraform.tfstate: $version_id"
-              aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
-            done
+            if [[ "$versions" != "null" && "$versions" != "[]" ]]; then
+              echo "$versions" | jq -r '.[] | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
+                echo "🗑️ Eliminando versión de terraform.tfstate: $version_id"
+                aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
+              done
+            fi
+
+            # 3. 🔥 ELIMINAR MARCADORES DE ELIMINACIÓN de `terraform.tfstate`
+            echo "🔍 Buscando marcadores de eliminación para terraform.tfstate..."
+            markers=$(aws s3api list-object-versions --bucket $BUCKET_NAME --query "DeleteMarkers[?Key=='terraform.tfstate']" --output json)
+
+            if [[ "$markers" != "null" && "$markers" != "[]" ]]; then
+              echo "$markers" | jq -r '.[] | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
+                echo "🗑️ Eliminando marcador de terraform.tfstate: $version_id"
+                aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
+              done
+            fi
 
             # 4. 🚀 ELIMINAR TODOS LOS DEMÁS OBJETOS
-            echo "Eliminando todos los objetos restantes..."
+            echo "🗑️ Eliminando todos los objetos restantes..."
             aws s3 rm "s3://$BUCKET_NAME" --recursive || true
 
             # 5. 🔥 ELIMINAR TODAS LAS VERSIONES de los objetos restantes
-            echo "Eliminando todas las versiones de objetos restantes..."
-            aws s3api list-object-versions --bucket $BUCKET_NAME --query "Versions" --output json | \
-            jq -r '.[] | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
-              echo "Eliminando objeto: $key, versión: $version_id"
-              aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
-            done
+            echo "🔍 Buscando versiones de objetos restantes..."
+            versions=$(aws s3api list-object-versions --bucket $BUCKET_NAME --query "Versions" --output json)
+
+            if [[ "$versions" != "null" && "$versions" != "[]" ]]; then
+              echo "$versions" | jq -r '.[] | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
+                echo "🗑️ Eliminando objeto: $key, versión: $version_id"
+                aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
+              done
+            fi
 
             # 6. 🔥 ELIMINAR MARCADORES DE ELIMINACIÓN RESTANTES
-            echo "Eliminando todos los marcadores de eliminación restantes..."
-            aws s3api list-object-versions --bucket $BUCKET_NAME --query "DeleteMarkers" --output json | \
-            jq -r '.[] | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
-              echo "Eliminando marcador de eliminación: $key, versión: $version_id"
-              aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
-            done
+            echo "🔍 Buscando marcadores de eliminación restantes..."
+            markers=$(aws s3api list-object-versions --bucket $BUCKET_NAME --query "DeleteMarkers" --output json)
+
+            if [[ "$markers" != "null" && "$markers" != "[]" ]]; then
+              echo "$markers" | jq -r '.[] | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
+                echo "🗑️ Eliminando marcador de eliminación: $key, versión: $version_id"
+                aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
+              done
+            fi
 
             # 7. 🔍 VERIFICAR SI EL BUCKET ESTÁ REALMENTE VACÍO
-            echo "Verificando si el bucket está vacío..."
+            echo "🔍 Verificando si el bucket está vacío..."
             remaining_objects=$(aws s3api list-objects --bucket $BUCKET_NAME --query "Contents" --output json)
             remaining_versions=$(aws s3api list-object-versions --bucket $BUCKET_NAME --query "Versions" --output json)
             remaining_markers=$(aws s3api list-object-versions --bucket $BUCKET_NAME --query "DeleteMarkers" --output json)
@@ -105,7 +117,7 @@ jobs:
 
           # Verificar si el bucket sigue existiendo antes de eliminarlo
           if aws s3api head-bucket --bucket $BUCKET_NAME 2>/dev/null; then
-            echo "Intentando eliminar el bucket vacío..."
+            echo "🗑️ Intentando eliminar el bucket vacío..."
             aws s3api delete-bucket --bucket $BUCKET_NAME
             echo "✅ Bucket eliminado con éxito."
           else
