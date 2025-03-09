@@ -38,11 +38,11 @@ jobs:
           if aws s3api head-bucket --bucket $BUCKET_NAME 2>/dev/null; then
             echo "El bucket existe. Procediendo a eliminar su contenido..."
 
-            # Eliminar todos los objetos normales
-            echo "Eliminando todos los objetos..."
+            # 1. Eliminar todos los objetos normales
+            echo "Eliminando objetos normales..."
             aws s3 rm "s3://$BUCKET_NAME" --recursive || true
 
-            # Manejar objetos versionados
+            # 2. Eliminar versiones de objetos (si el bucket tiene versionado)
             echo "Obteniendo lista de versiones de objetos..."
             versions=$(aws s3api list-object-versions --bucket $BUCKET_NAME --query "Versions" --output json)
 
@@ -53,7 +53,7 @@ jobs:
               done
             fi
 
-            # Manejar marcadores de eliminación
+            # 3. Eliminar marcadores de eliminación
             echo "Obteniendo lista de marcadores de eliminación..."
             markers=$(aws s3api list-object-versions --bucket $BUCKET_NAME --query "DeleteMarkers" --output json)
 
