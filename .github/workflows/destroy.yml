@@ -25,12 +25,64 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # Paso 4: Inicializar Terraform
-      - name: Initialize Terraform
-        run: terraform init
+      # Paso 4: Inicializar Terraform y refrescar el estado
+      - name: Initialize and Refresh Terraform
+        run: |
+          terraform init
+          terraform refresh
 
-      # Paso 5: Vaciar el bucket S3 asegurando la eliminación de terraform.tfstate
-      - name: Empty S3 Bucket (including terraform.tfstate)
+      # Paso 5: Forzar eliminación de recursos bloqueados antes de Terraform Destroy
+      - name: Force Delete AWS Resources
+        run: |
+          echo "🛑 Eliminando manualmente recursos bloqueados..."
+
+          # Detener y eliminar instancias EC2
+          INSTANCE_IDS=$(aws ec2 describe-instances --query "Reservations[*].Instances[*].InstanceId" --output text --region us-east-1)
+          if [[ "$INSTANCE_IDS" != "" ]]; then
+            echo "Apagando y terminando instancias EC2..."
+            aws ec2 terminate-instances --instance-ids $INSTANCE_IDS --region us-east-1
+            sleep 30  # Esperar que AWS elimine las instancias
+          fi
+
+          # Eliminar Elastic IP si existe
+          ALLOCATION_ID=$(aws ec2 describe-addresses --query "Addresses[0].AllocationId" --output text --region us-east-1)
+          if [[ "$ALLOCATION_ID" != "None" ]]; then
+            echo "Liberando Elastic IP: $ALLOCATION_ID"
+            aws ec2 release-address --allocation-id "$ALLOCATION_ID" --region us-east-1
+          fi
+
+          # Eliminar Security Groups si están vacíos
+          SECURITY_GROUPS=$(aws ec2 describe-security-groups --query "SecurityGroups[*].GroupId" --output text --region us-east-1)
+          for SG in $SECURITY_GROUPS; do
+            if [[ "$SG" != "default" ]]; then
+              echo "Eliminando Security Group: $SG"
+              aws ec2 delete-security-group --group-id "$SG" --region us-east-1 || true
+            fi
+          done
+
+          # Eliminar Internet Gateways
+          IGW_IDS=$(aws ec2 describe-internet-gateways --query "InternetGateways[*].InternetGatewayId" --output text --region us-east-1)
+          for IGW in $IGW_IDS; do
+            echo "Desvinculando y eliminando Internet Gateway: $IGW"
+            VPC_ID=$(aws ec2 describe-internet-gateways --internet-gateway-ids $IGW --query "InternetGateways[0].Attachments[0].VpcId" --output text --region us-east-1)
+            aws ec2 detach-internet-gateway --internet-gateway-id $IGW --vpc-id $VPC_ID --region us-east-1 || true
+            aws ec2 delete-internet-gateway --internet-gateway-id $IGW --region us-east-1 || true
+          done
+
+          echo "✅ Recursos eliminados, continuando con Terraform Destroy."
+
+      # Paso 6: Ejecutar Terraform Destroy
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve
+
+      # Paso 7: Esperar antes de eliminar el bucket S3
+      - name: Wait before S3 Cleanup
+        run: |
+          echo "⏳ Esperando 10 segundos para permitir que S3 procese las eliminaciones..."
+          sleep 10
+
+      # Paso 8: Vaciar y eliminar el bucket S3
+      - name: Empty and Delete S3 Bucket
         run: |
           BUCKET_NAME="pin-grupo-4"
 
@@ -38,89 +90,40 @@ jobs:
           if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
             echo "✅ Bucket encontrado, eliminando contenido..."
 
-            # 1️⃣ 🔥 ELIMINAR `terraform.tfstate`
-            echo "🗑️ Eliminando terraform.tfstate..."
-            aws s3 rm "s3://$BUCKET_NAME/terraform.tfstate" || true
+            # Eliminar objetos del bucket
+            echo "🗑️ Eliminando objetos..."
+            aws s3 rm "s3://$BUCKET_NAME" --recursive --region us-east-1 || true
 
-            # 2️⃣ 🔥 ELIMINAR TODAS LAS VERSIONES de `terraform.tfstate`
-            versions=$(aws s3api list-object-versions --bucket "$BUCKET_NAME" --query "Versions[?Key=='terraform.tfstate']" --output json)
-            if [[ "$versions" != "null" && "$versions" != "[]" ]]; then
-              echo "$versions" | jq -r '.[] | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
-                echo "🗑️ Eliminando versión de terraform.tfstate: $version_id"
-                aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
-              done
-            fi
+            # Eliminar versiones de objetos
+            echo "🗑️ Eliminando versiones de objetos..."
+            aws s3api list-object-versions --bucket "$BUCKET_NAME" --query "Versions[].{Key:Key,VersionId:VersionId}" --output json --region us-east-1 | \
+            jq -c '.[]' | while read -r obj; do
+              key=$(echo "$obj" | jq -r '.Key')
+              version=$(echo "$obj" | jq -r '.VersionId')
+              aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version" --region us-east-1
+            done
 
-            # 3️⃣ 🔥 ELIMINAR MARCADORES DE ELIMINACIÓN de `terraform.tfstate`
-            markers=$(aws s3api list-object-versions --bucket "$BUCKET_NAME" --query "DeleteMarkers[?Key=='terraform.tfstate']" --output json)
-            if [[ "$markers" != "null" && "$markers" != "[]" ]]; then
-              echo "$markers" | jq -r '.[] | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
-                echo "🗑️ Eliminando marcador de terraform.tfstate: $version_id"
-                aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
-              done
-            fi
+            # Eliminar marcadores de eliminación
+            echo "🗑️ Eliminando marcadores de eliminación..."
+            aws s3api list-object-versions --bucket "$BUCKET_NAME" --query "DeleteMarkers[].{Key:Key,VersionId:VersionId}" --output json --region us-east-1 | \
+            jq -c '.[]' | while read -r obj; do
+              key=$(echo "$obj" | jq -r '.Key')
+              version=$(echo "$obj" | jq -r '.VersionId')
+              aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version" --region us-east-1
+            done
 
-            # 4️⃣ 🚀 ELIMINAR TODOS LOS OBJETOS RESTANTES
-            echo "🗑️ Eliminando todos los objetos restantes..."
-            aws s3 rm "s3://$BUCKET_NAME" --recursive || true
-
-            # 5️⃣ 🔥 ELIMINAR TODAS LAS VERSIONES de los objetos restantes
-            versions=$(aws s3api list-object-versions --bucket "$BUCKET_NAME" --query "Versions" --output json)
-            if [[ "$versions" != "null" && "$versions" != "[]" ]]; then
-              echo "$versions" | jq -r '.[] | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
-                echo "🗑️ Eliminando objeto: $key, versión: $version_id"
-                aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
-              done
-            fi
-
-            # 6️⃣ 🔥 ELIMINAR MARCADORES DE ELIMINACIÓN RESTANTES
-            markers=$(aws s3api list-object-versions --bucket "$BUCKET_NAME" --query "DeleteMarkers" --output json)
-            if [[ "$markers" != "null" && "$markers" != "[]" ]]; then
-              echo "$markers" | jq -r '.[] | "\(.Key) \(.VersionId)"' | while read -r key version_id; do
-                echo "🗑️ Eliminando marcador de eliminación: $key, versión: $version_id"
-                aws s3api delete-object --bucket "$BUCKET_NAME" --key "$key" --version-id "$version_id"
-              done
-            fi
-
-            # 7️⃣ 🔍 ESPERAR 10 SEGUNDOS PARA QUE AWS PROCESE
-            echo "⏳ Esperando 10 segundos antes de verificar si el bucket está vacío..."
+            # Esperar antes de eliminar el bucket
+            echo "⏳ Esperando 10 segundos para asegurar que AWS procese las eliminaciones..."
             sleep 10
 
-            # 8️⃣ 🔍 VERIFICAR SI EL BUCKET ESTÁ REALMENTE VACÍO
-            remaining_objects=$(aws s3api list-objects --bucket "$BUCKET_NAME" --query "Contents" --output json)
-            remaining_versions=$(aws s3api list-object-versions --bucket "$BUCKET_NAME" --query "Versions" --output json)
-            remaining_markers=$(aws s3api list-object-versions --bucket "$BUCKET_NAME" --query "DeleteMarkers" --output json)
-
-            if [[ "$remaining_objects" == "[]" && "$remaining_versions" == "[]" && "$remaining_markers" == "[]" ]]; then
-              echo "✅ El bucket está completamente vacío."
+            # Intentar eliminar el bucket vacío
+            if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+              echo "🗑️ Intentando eliminar el bucket vacío..."
+              aws s3api delete-bucket --bucket "$BUCKET_NAME" --region us-east-1
+              echo "✅ Bucket eliminado con éxito."
             else
-              echo "❌ ERROR: El bucket aún tiene objetos después de la eliminación. Abortando."
-              exit 1
+              echo "El bucket no existe o ya fue eliminado."
             fi
           else
-            echo "El bucket no existe o ya está vacío."
-          fi
-
-      # Paso 6: Ejecutar Terraform Destroy (solo si el bucket ya está vacío)
-      - name: Terraform Destroy
-        run: terraform destroy -auto-approve
-
-      # Paso 7: Esperar antes de eliminar el bucket
-      - name: Wait for S3 to process deletions
-        run: |
-          echo "⏳ Esperando 10 segundos para permitir que S3 procese las eliminaciones..."
-          sleep 10
-
-      # Paso 8: Intentar eliminar el bucket solo si está vacío
-      - name: Delete S3 Bucket
-        run: |
-          BUCKET_NAME="pin-grupo-4"
-
-          # Verificar si el bucket sigue existiendo antes de eliminarlo
-          if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
-            echo "🗑️ Intentando eliminar el bucket vacío..."
-            aws s3api delete-bucket --bucket "$BUCKET_NAME" --region us-east-1
-            echo "✅ Bucket eliminado con éxito."
-          else
-            echo "El bucket no existe o ya fue eliminado."
+            echo "El bucket no existe."
           fi
