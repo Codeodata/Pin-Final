@@ -1,7 +1,7 @@
 variable "bucket_name" {
   description = "Región de AWS donde se encuentra el bucket S3"
   type        = string
-  default     = "pin-grupo-4"
+  default     = "pin-grupo-25"
 }
 
 variable "region" {
