@@ -33,7 +33,7 @@ sudo docker volume create grafana_data
 sudo docker volume create nginx_data
 
 # Crear archivo prometheus.yml en /home/ubuntu
-sudo cat <<EOF > /home/ubuntu/prometheus.yml
+cat <<EOF > /home/ubuntu/prometheus.yml
 global:
   scrape_interval: 15s
 
@@ -48,7 +48,7 @@ scrape_configs:
 EOF
 
 # Crear archivo de configuración de NGINX con stub_status
-sudo cat <<EOF > /home/ubuntu/nginx.conf
+cat <<EOF > /home/ubuntu/nginx.conf
 events {}
 
 http {
