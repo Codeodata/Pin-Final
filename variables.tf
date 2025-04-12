@@ -55,5 +55,5 @@ variable "instance_name" {
 variable "key_name" {
   description = "Nombre de la instancia EC2"
   type        = string
-  default     = "Miclaveprivada"
+  default     = "pin-key"
 }
