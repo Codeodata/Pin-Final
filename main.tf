@@ -15,7 +15,7 @@ resource "aws_instance" "monitoring" {
   associate_public_ip_address = true
   subnet_id                   = aws_subnet.subnet.id
   vpc_security_group_ids      = [aws_security_group.sg.id]
-  user_data                   = file("metrics.sh")  # Script de inicialización
+  user_data                   = file("tools.sh")  # Script de inicialización
 
   tags = {
     Name = var.instance_name
