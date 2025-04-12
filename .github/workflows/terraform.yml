@@ -30,13 +30,13 @@ jobs:
         run: |
           if ! aws s3api head-bucket --bucket pin-grupo-4 2>/dev/null; then
             aws s3api create-bucket \
-              --bucket pin-grupo-4 \
+              --bucket pin-grupo-25 \
               --region us-east-1
             aws s3api put-bucket-versioning \
-              --bucket pin-grupo-4 \
+              --bucket pin-grupo-25 \
               --versioning-configuration Status=Enabled
             aws s3api put-bucket-encryption \
-              --bucket pin-grupo-4 \
+              --bucket pin-grupo-25 \
               --server-side-encryption-configuration '{"Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}]}'
           fi
 
