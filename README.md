@@ -1,12 +1,13 @@
-# Proyecto integrador final DevOps 2403
+# Proyecto integrador final DevOps 2404
 
-## Grupo 4
+## Grupo 25
 
 ### Integrantes:
-- Abt, Daniel
-- Lavezzari, Diego
-- Montenegro, Fabian
-- Moure, Maximiliano
+
+  Agustin Gonzales
+  Santiago Abalos
+  Agustin Correa
+
 
 ---
 
