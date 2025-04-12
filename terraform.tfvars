@@ -4,4 +4,4 @@ availability_zone  = "us-east-1a"
 ami_id             = "ami-0866a3c8686eaeeba"  # Ejemplo: Amazon Linux 2 AMI
 instance_type      = "t2.micro"
 key_name           = "Miclaveprivada"  # Nombre de la clave SSH cargada en AWS
-instance_name      = "mi-instancia-monitoring"
+instance_name      = "mi-instancia-monitoring" 
