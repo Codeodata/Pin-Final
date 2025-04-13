@@ -1,11 +1,11 @@
 # Proyecto integrador final DevOps 2404
 
-## Grupo 25
+## Grupo 8
 
 ### Integrantes:
 
   Agustin Gonzales
-  Santiago Abalos
+  Santiago Bertola
   Agustin Correa
 
 
