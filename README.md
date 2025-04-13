@@ -1,4 +1,4 @@
-# 🚀 Proyecto Integrador Final DevOps - Cohorte 2404
+# 🚀 Proyecto Integrador Final DevOps - 2404
 
 ## 👥 Grupo 25
 
